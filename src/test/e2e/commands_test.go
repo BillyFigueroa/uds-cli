@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v2"
+
 	"github.com/defenseunicorns/pkg/helpers"
 	"github.com/defenseunicorns/uds-cli/src/config"
 	"github.com/defenseunicorns/zarf/src/pkg/message"
@@ -102,6 +104,16 @@ func inspectLocalAndSBOMExtract(t *testing.T, tarballPath string) {
 	_, err = os.Stat(config.BundleSBOM)
 	require.NoError(t, err)
 	err = os.RemoveAll(config.BundleSBOM)
+	require.NoError(t, err)
+}
+
+func inspectBundleYAML(t *testing.T, yamlPath string) {
+	cmd := strings.Split(fmt.Sprintf("inspect %s", yamlPath), " ")
+	_, _, err := e2e.UDS(cmd...)
+	data, err := os.ReadFile(yamlPath)
+	require.NoError(t, err)
+	var bundleData map[string]interface{}
+	err = yaml.Unmarshal(data, &bundleData)
 	require.NoError(t, err)
 }
 
