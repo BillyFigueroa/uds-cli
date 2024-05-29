@@ -5,6 +5,7 @@
 package bundle
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,7 +16,6 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/defenseunicorns/pkg/helpers"
 	"github.com/defenseunicorns/uds-cli/src/config"
-	"github.com/defenseunicorns/uds-cli/src/pkg/bundle/tui/deploy"
 	"github.com/defenseunicorns/uds-cli/src/pkg/sources"
 	"github.com/defenseunicorns/uds-cli/src/types"
 	zarfConfig "github.com/defenseunicorns/zarf/src/config"
@@ -77,11 +77,8 @@ func deployPackages(packages []types.Package, resume bool, b *Bundle) error {
 		packagesToDeploy = packages
 	}
 
-	// let TUI know how many packages are being deployed
-	deploy.Program.Send(fmt.Sprintf("totalPackages:%d", len(packagesToDeploy)))
-
 	// deploy each package
-	for i, pkg := range packagesToDeploy {
+	for _, pkg := range packagesToDeploy {
 		sha := strings.Split(pkg.Ref, "@sha256:")[1] // using appended SHA from create!
 		pkgTmp, err := utils.MakeTempDir(config.CommonOptions.TempDirectory)
 		if err != nil {
@@ -128,32 +125,27 @@ func deployPackages(packages []types.Package, resume bool, b *Bundle) error {
 		// Automatically confirm the package deployment
 		zarfConfig.CommonOptions.Confirm = true
 
-		source, err := sources.New(b.cfg.DeployOpts.Source, pkg.Name, opts, sha, nsOverrides)
+		source, err := sources.New(b.cfg.DeployOpts.Source, pkg, opts, sha, nsOverrides)
 		if err != nil {
 			return err
 		}
 
 		pkgClient := packager.NewOrDie(&pkgCfg, packager.WithSource(source), packager.WithTemp(opts.PackageSource))
-		if err != nil {
+
+		if err := pkgClient.Deploy(context.TODO()); err != nil {
 			return err
 		}
-
-		deploy.Program.Send(fmt.Sprintf("newPackage:%s:%d", pkg.Name, i))
-
-		if err := pkgClient.Deploy(); err != nil {
-			return err
-		}
-
-		deploy.Program.Send(fmt.Sprintf("complete:%d", i))
 
 		// save exported vars
 		pkgExportedVars := make(map[string]string)
+		variableConfig := pkgClient.GetVariableConfig()
 		for _, exp := range pkg.Exports {
 			// ensure if variable exists in package
-			if _, ok := pkgCfg.SetVariableMap[exp.Name]; !ok {
+			setVariable, ok := variableConfig.GetSetVariable(exp.Name)
+			if !ok {
 				return fmt.Errorf("cannot export variable %s because it does not exist in package %s", exp.Name, pkg.Name)
 			}
-			pkgExportedVars[strings.ToUpper(exp.Name)] = pkgCfg.SetVariableMap[exp.Name].Value
+			pkgExportedVars[strings.ToUpper(exp.Name)] = setVariable.Value
 		}
 		bundleExportedVars[pkg.Name] = pkgExportedVars
 	}

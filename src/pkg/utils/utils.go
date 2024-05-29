@@ -10,11 +10,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+
+	zarfTypes "github.com/defenseunicorns/zarf/src/types"
+	goyaml "github.com/goccy/go-yaml"
 
 	"github.com/defenseunicorns/pkg/helpers"
 	"github.com/defenseunicorns/uds-cli/src/config"
@@ -24,19 +27,6 @@ import (
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
-
-// GracefulPanic in the event of a panic, attempt to reset the terminal using the 'reset' command.
-func GracefulPanic() {
-	if r := recover(); r != nil {
-		fmt.Println("Recovering from panic to reset terminal before exiting")
-		// todo: this approach is heavy-handed, consider alternatives using the term lib (check out what BubbleTea does)
-		cmd := exec.Command("reset")
-		cmd.Stdout = os.Stdout
-		cmd.Stdin = os.Stdin
-		_ = cmd.Run()
-		panic(r)
-	}
-}
 
 // IsValidTarballPath returns true if the path is a valid tarball path to a bundle tarball
 func IsValidTarballPath(path string) bool {
@@ -54,20 +44,40 @@ func IsValidTarballPath(path string) bool {
 	return re.MatchString(name)
 }
 
+// IncludeComponent checks if a component has been specified in a a list of components (used for filtering optional components)
+func IncludeComponent(componentToCheck string, filteredComponents []zarfTypes.ZarfComponent) bool {
+	for _, component := range filteredComponents {
+		// get component name from annotation
+		nameWithSuffix := strings.Split(componentToCheck, "components/")[1]
+		componentName := strings.Split(nameWithSuffix, ".tar")[0]
+		if componentName == component.Name {
+			return true
+		}
+	}
+	return false
+}
+
 // ConfigureLogs sets up the log file, log cache and output for the CLI
 func ConfigureLogs(cmd *cobra.Command) error {
 	// don't configure UDS logs for vendored cmds
 	if strings.HasPrefix(cmd.Use, "zarf") || strings.HasPrefix(cmd.Use, "run") {
 		return nil
 	}
-	writer, err := message.UseLogFile("")
-	logFile := writer
+
+	// create a temporary log file
+	ts := time.Now().Format("2006-01-02-15-04-05")
+	tmpLogFile, err := os.CreateTemp("", fmt.Sprintf("uds-%s-*.log", ts))
+	if err != nil {
+		message.WarnErr(err, "Error creating a log file in a temporary directory")
+		return err
+	}
+	tmpLogLocation := tmpLogFile.Name()
+
+	writer, err := message.UseLogFile(tmpLogFile)
 	if err != nil {
 		return err
-
 	}
-	tmpLogLocation := message.LogFileLocation()
-	config.LogFileName = tmpLogLocation
+	pterm.SetDefaultOutput(io.MultiWriter(os.Stderr, writer))
 
 	// Set up cache dir and cache logs file
 	cacheDir := filepath.Join(config.CommonOptions.CachePath)
@@ -81,23 +91,8 @@ func ConfigureLogs(cmd *cobra.Command) error {
 		return err
 	}
 
-	logWriter := io.MultiWriter(logFile)
-
-	// use Zarf pterm output if no-tea flag is set
-	// todo: as more bundle ops use BubbleTea, need to also check them alongside 'deploy'
-	if !(strings.HasPrefix(cmd.Parent().Use, "uds") && strings.HasPrefix(cmd.Use, "deploy")) || config.CommonOptions.NoTea {
-		message.Notef("Saving log file to %s", tmpLogLocation)
-		logWriter = io.MultiWriter(os.Stderr, logFile)
-		pterm.SetDefaultOutput(logWriter)
-		return nil
-	}
-
-	pterm.SetDefaultOutput(logWriter)
-
-	// disable progress bars (otherwise they will still get printed to STDERR)
-	message.NoProgress = true
-
-	message.Debugf(fmt.Sprintf("Saving log file to %s", tmpLogLocation))
+	// use Zarf pterm output
+	message.Notef("Saving log file to %s", tmpLogLocation)
 	return nil
 }
 
@@ -182,4 +177,20 @@ func IsRegistryURL(s string) bool {
 	}
 
 	return false
+}
+
+// ReadYAMLStrict reads a YAML file into a struct, with strict parsing
+func ReadYAMLStrict(path string, destConfig any) error {
+	message.Debugf("Reading YAML at %s", path)
+
+	file, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read file at %s: %v", path, err)
+	}
+
+	err = goyaml.UnmarshalWithOptions(file, destConfig, goyaml.Strict())
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal YAML at %s: %v", path, err)
+	}
+	return nil
 }

@@ -5,8 +5,6 @@
 [![Build Status](https://img.shields.io/github/actions/workflow/status/defenseunicorns/uds-cli/release.yaml)](https://github.com/defenseunicorns/uds-cli/actions/workflows/release.yaml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/defenseunicorns/uds-cli/badge)](https://api.securityscorecards.dev/projects/github.com/defenseunicorns/uds-cli)
 
-**:warning: Warning**:  UDS-CLI is in early alpha, expect changes to the schema and workflow
-
 ## Table of Contents
 
 1. [Install](#install)
@@ -141,13 +139,13 @@ As an example: `uds remove uds-bundle-<name>.tar.zst --packages init,nginx`
 The `uds logs` command can be used to view the most recent logs of a bundle operation. Note that depending on your OS temporary directory and file settings, recent logs are purged after a certain amount of time, so this command may return an error if the logs are no longer available.
 
 ## Bundle Architecture and Multi-Arch Support
-There are several ways to specify the architecture of a bundle:
+There are several ways to specify the architecture of a bundle according to the following precedence:
 1. Setting `--architecture` or `-a` flag during `uds ...` operations: `uds create <dir> --architecture arm64`
-2. Setting the `metadata.architecture` key in a `uds-bundle.yaml`
-3. Setting a `UDS_ARCHITECTURE` environment variable
-4. Setting the `options.architecture` key in a `uds-config.yaml`
+2. Setting a `UDS_ARCHITECTURE` environment variable
+3. Setting the `options.architecture` key in a `uds-config.yaml`
+4. Setting the `metadata.architecture` key in a `uds-bundle.yaml`
 
-Note that the setting the `--architecture` flag takes precedence over all other methods of specifying the architecture.
+This means that setting the `--architecture` flag takes precedence over all other methods of specifying the architecture.
 
 UDS CLI supports multi-arch bundles. This means you can push bundles with different architectures to the same remote OCI repository, at the same tag. For example, you can push both an `amd64` and `arm64` bundle to `ghcr.io/<org>/<bundle name>:0.0.1`.
 
@@ -278,18 +276,19 @@ UDS CLI includes a vendored version of Zarf inside of its binary. To use Zarf, s
 ## Dev Mode
 
 > [!NOTE]  
-> Dev mode is a BETA feature and currently only works with local bundles
+> Dev mode is a BETA feature
 
 Dev mode facilitates faster dev cycles when developing and testing bundles
 
 ```
-uds dev deploy <path-to-bundle-yaml-dir>
+uds dev deploy <path-to-bundle-yaml-dir> | <oci-ref>
 ```
 
 The `dev deploy` command performs the following operations
-- Creates Zarf packages for all local packages in a bundle
+
+- If local bundle: Creates Zarf packages for all local packages in a bundle
   - Creates the Zarf tarball in the same directory as the `zarf.yaml`
   - Will only create the Zarf tarball if one does not already exist
   - Ignores any `kind: ZarfInitConfig` packages in the bundle
-- Creates a bundle from the newly created Zarf packages
+  - Creates a bundle from the newly created Zarf packages
 - Deploys the bundle in [YOLO](https://docs.zarf.dev/faq/#what-is-yolo-mode-and-why-would-i-use-it) mode, eliminating the need to do a `zarf init`

@@ -10,18 +10,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/defenseunicorns/uds-cli/src/config"
 	"github.com/defenseunicorns/uds-cli/src/config/lang"
 	"github.com/defenseunicorns/uds-cli/src/pkg/bundle"
-	"github.com/defenseunicorns/uds-cli/src/pkg/bundle/tui/deploy"
 	"github.com/defenseunicorns/zarf/src/pkg/message"
-	goyaml "github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 var createCmd = &cobra.Command{
@@ -61,36 +56,10 @@ var deployCmd = &cobra.Command{
 		bundleCfg.DeployOpts.Source = chooseBundle(args)
 		configureZarf()
 
-		// load uds-config if it exists
-		if v.ConfigFileUsed() != "" {
-			if err := loadViperConfig(); err != nil {
-				message.Fatalf(err, "Failed to load uds-config: %s", err.Error())
-				return
-			}
-		}
-		// create new bundle client
+		// create new bundle client and deploy
 		bndlClient := bundle.NewOrDie(&bundleCfg)
 		defer bndlClient.ClearPaths()
-
-		// don't use bubbletea if --no-tea flag is set
-		if config.CommonOptions.NoTea {
-			deployWithoutTea(bndlClient)
-			return
-		}
-
-		// start up bubbletea
-		m := deploy.InitModel(bndlClient)
-
-		// detect tty so CI/containers don't break
-		if term.IsTerminal(int(os.Stdout.Fd())) {
-			deploy.Program = tea.NewProgram(&m)
-		} else {
-			deploy.Program = tea.NewProgram(&m, tea.WithInput(nil))
-		}
-
-		if _, err := deploy.Program.Run(); err != nil {
-			message.Fatalf(err, "TUI program error: %s", err.Error())
-		}
+		deploy(bndlClient)
 	},
 }
 
@@ -204,40 +173,6 @@ var logsCmd = &cobra.Command{
 			message.Fatalf(err, "Error reading or printing log file: %v\n", err.Error())
 		}
 	},
-}
-
-// loadViperConfig reads the config file and unmarshals the relevant config into DeployOpts.Variables
-func loadViperConfig() error {
-	// get config file from Viper
-	configFile, err := os.ReadFile(v.ConfigFileUsed())
-	if err != nil {
-		return err
-	}
-
-	// read relevant config into DeployOpts.Variables
-	// need to use goyaml because Viper doesn't preserve case: https://github.com/spf13/viper/issues/1014
-	err = goyaml.Unmarshal(configFile, &bundleCfg.DeployOpts)
-	if err != nil {
-		return err
-	}
-
-	// ensure the DeployOpts.Variables pkg vars are uppercase
-	for pkgName, pkgVar := range bundleCfg.DeployOpts.Variables {
-		for varName, varValue := range pkgVar {
-			// delete the lowercase var and replace with uppercase
-			delete(bundleCfg.DeployOpts.Variables[pkgName], varName)
-			bundleCfg.DeployOpts.Variables[pkgName][strings.ToUpper(varName)] = varValue
-		}
-	}
-
-	// ensure the DeployOpts.SharedVariables vars are uppercase
-	for varName, varValue := range bundleCfg.DeployOpts.SharedVariables {
-		// delete the lowercase var and replace with uppercase
-		delete(bundleCfg.DeployOpts.SharedVariables, varName)
-		bundleCfg.DeployOpts.SharedVariables[strings.ToUpper(varName)] = varValue
-	}
-
-	return nil
 }
 
 func init() {

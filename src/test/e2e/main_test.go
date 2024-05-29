@@ -91,6 +91,7 @@ func doAllTheThings(m *testing.M) (int, error) {
 	return returnCode, nil
 }
 
+// deployZarfInit deploys Zarf init (from a bundle!) if it hasn't already been deployed.
 func deployZarfInit(t *testing.T) {
 	if !zarfInitDeployed() {
 		// get Zarf version from go.mod
@@ -115,14 +116,19 @@ func deployZarfInit(t *testing.T) {
 		require.NoError(t, err)
 
 		// Deploy
-		cmd = strings.Split(fmt.Sprintf("deploy %s --confirm -l=debug --no-tea", bundlePath), " ")
+		cmd = strings.Split(fmt.Sprintf("deploy %s --confirm -l=debug", bundlePath), " ")
 		_, _, err = e2e.UDS(cmd...)
 		require.NoError(t, err)
 	}
 }
 
 func zarfInitDeployed() bool {
-	cmd := strings.Split("zarf tools kubectl get deployments --namespace zarf", " ")
+	cmd := strings.Split("zarf tools kubectl get deployments zarf-docker-registry --namespace zarf", " ")
 	_, stderr, _ := e2e.UDS(cmd...)
-	return !strings.Contains(stderr, "No resources found in zarf namespace")
+	registryDeployed := !strings.Contains(stderr, "No resources found in zarf namespace") && !strings.Contains(stderr, "not found")
+
+	cmd = strings.Split("zarf tools kubectl get deployments agent-hook --namespace zarf", " ")
+	_, stderr, _ = e2e.UDS(cmd...)
+	agentDeployed := !strings.Contains(stderr, "No resources found in zarf namespace") && !strings.Contains(stderr, "not found")
+	return registryDeployed && agentDeployed
 }

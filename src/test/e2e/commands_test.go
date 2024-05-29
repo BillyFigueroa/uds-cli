@@ -25,6 +25,12 @@ import (
 
 // This file contains helpers for running UDS CLI commands (ie. uds create/deploy/etc with various flags and options)
 
+func zarfPublish(t *testing.T, path string, reg string) {
+	args := strings.Split(fmt.Sprintf("zarf package publish %s oci://%s --insecure --oci-concurrency=10 -l debug --no-progress", path, reg), " ")
+	_, _, err := e2e.UDS(args...)
+	require.NoError(t, err)
+}
+
 func createLocal(t *testing.T, bundlePath string, arch string) {
 	cmd := strings.Split(fmt.Sprintf("create %s --insecure --confirm -a %s", bundlePath, arch), " ")
 	_, _, err := e2e.UDS(cmd...)
@@ -106,21 +112,14 @@ func inspectLocalAndSBOMExtract(t *testing.T, tarballPath string) {
 }
 
 func deploy(t *testing.T, tarballPath string) (stdout string, stderr string) {
-	cmd := strings.Split(fmt.Sprintf("deploy %s --retries 1 --confirm --no-tea", tarballPath), " ")
+	cmd := strings.Split(fmt.Sprintf("deploy %s --retries 1 --confirm", tarballPath), " ")
 	stdout, stderr, err := e2e.UDS(cmd...)
 	require.NoError(t, err)
 	return stdout, stderr
 }
 
-func deployWithTUI(t *testing.T, source string) (stdout string, stderr string) {
-	cmd := strings.Split(fmt.Sprintf("deploy %s --confirm", source), " ")
-	stdout, stderr, err := e2e.UDS(cmd...)
-	require.NoError(t, err)
-	return stdout, stderr
-}
-
-func devDeploy(t *testing.T, tarballPath string) (stdout string, stderr string) {
-	cmd := strings.Split(fmt.Sprintf("dev deploy %s", tarballPath), " ")
+func devDeploy(t *testing.T, bundlePath string) (stdout string, stderr string) {
+	cmd := strings.Split(fmt.Sprintf("dev deploy %s --confirm", bundlePath), " ")
 	stdout, stderr, err := e2e.UDS(cmd...)
 	require.NoError(t, err)
 	return stdout, stderr
@@ -141,13 +140,13 @@ func runCmd(t *testing.T, input string) (stdout string, stderr string) {
 }
 
 func deployPackagesFlag(tarballPath string, packages string) (stdout string, stderr string) {
-	cmd := strings.Split(fmt.Sprintf("deploy %s --confirm -l=debug --packages %s --no-tea", tarballPath, packages), " ")
+	cmd := strings.Split(fmt.Sprintf("deploy %s --confirm -l=debug --packages %s", tarballPath, packages), " ")
 	stdout, stderr, _ = e2e.UDS(cmd...)
 	return stdout, stderr
 }
 
 func deployResumeFlag(t *testing.T, tarballPath string) {
-	cmd := strings.Split(fmt.Sprintf("deploy %s --confirm -l=debug --resume --no-tea", tarballPath), " ")
+	cmd := strings.Split(fmt.Sprintf("deploy %s --confirm -l=debug --resume", tarballPath), " ")
 	_, _, err := e2e.UDS(cmd...)
 	require.NoError(t, err)
 }
@@ -165,7 +164,7 @@ func removePackagesFlag(tarballPath string, packages string) (stdout string, std
 }
 
 func deployInsecure(t *testing.T, ref string) {
-	cmd := strings.Split(fmt.Sprintf("deploy %s --insecure --confirm --no-tea", ref), " ")
+	cmd := strings.Split(fmt.Sprintf("deploy %s --insecure --confirm", ref), " ")
 	_, _, err := e2e.UDS(cmd...)
 	require.NoError(t, err)
 }
@@ -182,7 +181,7 @@ func deployAndRemoveLocalAndRemoteInsecure(t *testing.T, ref string, tarballPath
 	t.Run(
 		"deploy+remove bundle via OCI",
 		func(t *testing.T) {
-			cmd = strings.Split(fmt.Sprintf("deploy %s --insecure --confirm --no-tea", ref), " ")
+			cmd = strings.Split(fmt.Sprintf("deploy %s --insecure --confirm", ref), " ")
 			_, _, err := e2e.UDS(cmd...)
 			require.NoError(t, err)
 
@@ -195,7 +194,7 @@ func deployAndRemoveLocalAndRemoteInsecure(t *testing.T, ref string, tarballPath
 	t.Run(
 		"deploy+remove bundle via local tarball",
 		func(t *testing.T) {
-			cmd = strings.Split(fmt.Sprintf("deploy %s --confirm --no-tea", tarballPath), " ")
+			cmd = strings.Split(fmt.Sprintf("deploy %s --confirm", tarballPath), " ")
 			_, _, err := e2e.UDS(cmd...)
 			require.NoError(t, err)
 
@@ -212,7 +211,10 @@ func shasMatch(t *testing.T, path string, expected string) {
 	require.Equal(t, expected, actual)
 }
 
-func pull(t *testing.T, ref string, tarballPath string) {
+func pull(t *testing.T, ref string, tarballName string) {
+	if !strings.HasSuffix(tarballName, "tar.zst") {
+		t.Fatalf("second arg to pull() must be the name a bundle tarball, got %s", tarballName)
+	}
 	// todo: output somewhere other than build?
 	cmd := strings.Split(fmt.Sprintf("pull %s -o build --insecure --oci-concurrency=10", ref), " ")
 	_, _, err := e2e.UDS(cmd...)
@@ -221,7 +223,7 @@ func pull(t *testing.T, ref string, tarballPath string) {
 	decompressed := "build/decompressed-bundle"
 	defer e2e.CleanFiles(decompressed)
 
-	cmd = []string{"zarf", "tools", "archiver", "decompress", tarballPath, decompressed}
+	cmd = []string{"zarf", "tools", "archiver", "decompress", filepath.Join("build", tarballName), decompressed}
 	_, _, err = e2e.UDS(cmd...)
 	require.NoError(t, err)
 
